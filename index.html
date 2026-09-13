@@ -7,29 +7,65 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root{
-    --bg:#0e1116; --card:#161b22; --border:#2a3038;
-    --accent:#c0143c; --accent2:#2e7dd7; --text:#e8eaed; --muted:#9aa4af;
+    --bg:#f4f5f7; --card:#ffffff; --border:#d9dce1;
+    --accent:#c0143c; --accent2:#2e7dd7; --text:#1a1d23; --muted:#6b7280;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
     font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
   #controls{padding:10px 10px 6px 10px;background:var(--card);border-bottom:1px solid var(--border);}
-  h1{font-size:1.05rem;margin:0 0 8px 0;color:#fff;}
+  h1{font-size:1.05rem;margin:0 0 8px 0;color:var(--text);}
   h1 span{color:var(--accent);}
   .row{display:flex; gap:6px;}
   select{
     width:100%; padding:10px; margin-bottom:6px; border-radius:8px;
-    border:1px solid var(--border); background:#0b0e13; color:var(--text); font-size:.9rem;
+    border:1px solid var(--border); background:#ffffff; color:var(--text); font-size:.9rem;
   }
   #status{font-size:.78rem;color:var(--muted);min-height:1.1em;}
   #status.err{color:#ff6b6b;} #status.ok{color:#4dd48a;}
   #map{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg);}
   #mapwrap{position:relative;height:calc(100vh - 178px);min-height:300px;}
   .legend{
-    background:rgba(22,27,34,0.92); border:1px solid var(--border); border-radius:8px;
-    padding:8px 10px; font-size:.75rem; color:var(--text); line-height:1.5;
+    background:rgba(255,255,255,0.95); border:1px solid var(--border); border-radius:8px;
+    padding:8px 9px; font-size:.62rem; color:var(--text); line-height:1.3;
+    box-shadow:0 1px 4px rgba(0,0,0,0.15);
   }
-  .legend i{width:14px;height:14px;display:inline-block;margin-right:6px;border-radius:2px;vertical-align:middle;}
+  .legend-grid{display:grid; grid-template-columns:repeat(4, auto); gap:2px 8px;}
+  .legend i{width:11px;height:11px;display:inline-block;margin-right:3px;border-radius:2px;vertical-align:middle;border:1px solid rgba(0,0,0,0.15);}
+  /* Panel sa detaljima o kliknutoj jedinici (desno gore, kao na referentnoj mapi) */
+  .infopanel{
+    position:absolute; top:10px; right:10px; z-index:1000;
+    background:rgba(255,255,255,0.97); border:1px solid var(--border); border-radius:10px;
+    padding:10px 12px; font-size:.8rem; color:var(--text); max-width:230px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.18); display:none;
+  }
+  .infopanel .close{position:absolute; top:6px; right:8px; cursor:pointer; color:var(--muted); font-size:.9rem;}
+  .infopanel h3{margin:0 12px 6px 0; font-size:.88rem;}
+  .infopanel .lead{font-weight:700; margin-bottom:8px;}
+  .infopanel .bar-row{margin-bottom:5px;}
+  .infopanel .bar-label{display:flex; justify-content:space-between; font-size:.72rem; margin-bottom:2px;}
+  .leaflet-interactive{ outline: none !important; }
+  .leaflet-interactive:focus{ outline: none !important; }
+  #searchWrap{position:relative; margin-bottom:6px;}
+  #searchInput{
+    width:100%; padding:10px 34px 10px 12px; border-radius:8px;
+    border:1px solid var(--border); background:#fff; color:var(--text); font-size:.9rem;
+  }
+  #searchResults{
+    position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:1200;
+    background:#fff; border:1px solid var(--border); border-radius:8px;
+    max-height:260px; overflow-y:auto; box-shadow:0 4px 12px rgba(0,0,0,0.18);
+    display:none;
+  }
+  #searchResults .res-item{
+    padding:9px 12px; font-size:.85rem; cursor:pointer; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; gap:8px;
+  }
+  #searchResults .res-item:last-child{border-bottom:none;}
+  #searchResults .res-item:hover, #searchResults .res-item.active{background:#f0f2f5;}
+  #searchResults .res-level{color:var(--muted); font-size:.72rem; white-space:nowrap;}
+  .infopanel .bar-track{background:#eee; border-radius:3px; height:7px; overflow:hidden;}
+  .infopanel .bar-fill{height:100%; background:var(--accent);}
   .leaflet-tooltip.muni-tip{background:var(--card);border:1px solid var(--border);color:var(--text);font-size:.8rem;padding:6px 8px;}
   .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--text);}
 </style>
@@ -38,6 +74,10 @@
 
 <div id="controls">
   <h1>Izbori <span>Srbija</span></h1>
+  <div id="searchWrap">
+    <input type="text" id="searchInput" placeholder="Pretraga (opština, grad, okrug...)" autocomplete="off">
+    <div id="searchResults"></div>
+  </div>
   <div class="row">
     <select id="datasetSelect"></select>
     <select id="levelSelect"></select>
@@ -46,7 +86,15 @@
   <div id="status">Učitavam...</div>
 </div>
 
-<div id="mapwrap"><div id="map"></div></div>
+<div id="mapwrap">
+  <div id="map"></div>
+  <div class="infopanel" id="infopanel">
+    <span class="close" id="infopanelClose">✕</span>
+    <h3 id="ipName"></h3>
+    <div class="lead" id="ipLead"></div>
+    <div id="ipBars"></div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -88,6 +136,8 @@ let electionData = null;
 let geoCache = {};
 let geoLayer = null;
 let legendControl = null;
+let selectedLayer = null;
+let searchIndex = [];
 
 const map = L.map('map', {zoomControl:true, attributionControl:false}).setView([44.2, 20.9], 7);
 
@@ -143,6 +193,7 @@ async function loadElection(){
     const res = await fetch(electionUrl(code));
     if(!res.ok) throw new Error('HTTP ' + res.status);
     electionData = await res.json();
+    buildSearchIndex();
     setStatus('Učitano.', 'ok');
     populateCandidateSelect();
   }catch(err){
@@ -190,19 +241,24 @@ function populateCandidateSelect(){
   drawMap();
 }
 
-// Diskretni "bucket" stepeni po % (kao na referentnoj mapi: 40-50/50-60/.../90-100%),
-// umesto neprekidnog gradijenta. Jedna boja (accent crvena), pojačava se sa %.
-const BINS = [
-  {max: 40,  color:'#2a2f38', label:'< 40%'},
-  {max: 50,  color:'#f4c2c8', label:'40–50%'},
-  {max: 60,  color:'#e78d98', label:'50–60%'},
-  {max: 70,  color:'#d75569', label:'60–70%'},
-  {max: 80,  color:'#c0143c', label:'70–80%'},
-  {max: 90,  color:'#8a0e2c', label:'80–90%'},
-  {max: 101, color:'#5c0a1e', label:'90–100%'}
-];
+// 16 diskretnih "bucket" stepeni po % (0-100, korak 6.25%), umesto neprekidnog
+// gradijenta — jedna boja (accent crvena), pojačava se sa %.
+const N_BINS = 16;
+const LIGHT_C = [253,224,224];
+const DARK_C  = [92,10,30];
+function lerpColor(t){
+  const r = Math.round(LIGHT_C[0] + (DARK_C[0]-LIGHT_C[0])*t);
+  const g = Math.round(LIGHT_C[1] + (DARK_C[1]-LIGHT_C[1])*t);
+  const b = Math.round(LIGHT_C[2] + (DARK_C[2]-LIGHT_C[2])*t);
+  return `rgb(${r},${g},${b})`;
+}
+const BINS = Array.from({length:N_BINS}, (_, i) => {
+  const lo = Math.round(i * 100 / N_BINS);
+  const hi = Math.round((i+1) * 100 / N_BINS);
+  return { max: hi, color: lerpColor(i/(N_BINS-1)), label: `${lo}–${hi}%` };
+});
 function colorFor(pct){
-  if(pct === undefined || pct === null || isNaN(pct)) return '#333';
+  if(pct === undefined || pct === null || isNaN(pct)) return '#c8ccd2';
   for(const b of BINS){ if(pct < b.max) return b.color; }
   return BINS[BINS.length-1].color;
 }
@@ -230,6 +286,7 @@ async function drawMap(){
       unitVotes[code] = v;
     }
   });
+  selectedLayer = null;
   if(geoLayer) map.removeLayer(geoLayer);
 
   geoLayer = L.geoJSON(geomData, {
@@ -238,7 +295,7 @@ async function drawMap(){
       const pct = unitPct[kod];
       return {
         fillColor: colorFor(pct),
-        fillOpacity: 0.85, color: '#0e1116', weight: levelKey === 'opstina' ? 0.5 : 0.8
+        fillOpacity: 0.9, color: '#ffffff', weight: levelKey === 'opstina' ? 0.5 : 0.9
       };
     },
     onEachFeature: (feature, layer) => {
@@ -250,6 +307,7 @@ async function drawMap(){
         ? `<b>${naziv}</b><br>${candidate}<br><b>${pct.toFixed(2)}%</b> (${votes.toLocaleString('sr-RS')} glasova)`
         : `<b>${naziv}</b><br>nema podataka`;
       layer.bindTooltip(tip, {className:'muni-tip', sticky:true});
+      layer.on('click', () => selectFeatureByKod(kod, naziv, false));
     }
   }).addTo(map);
 
@@ -262,11 +320,129 @@ async function drawMap(){
   legendControl = L.control({position:'bottomright'});
   legendControl.onAdd = function(){
     const div = L.DomUtil.create('div', 'legend');
-    div.innerHTML = BINS.map(b => `<div><i style="background:${b.color}"></i>${b.label}</div>`).join('');
+    div.innerHTML = '<div class="legend-grid">' +
+      BINS.map(b => `<div><i style="background:${b.color}"></i>${b.label}</div>`).join('') +
+      '</div>';
     return div;
   };
   legendControl.addTo(map);
   setStatus(`${Object.keys(levelData).length} jedinica na nivou: ${LEVELS[levelKey].label}`, 'ok');
+}
+
+function showInfoPanel(kod, naziv, unit){
+  const panel = document.getElementById('infopanel');
+  if(!unit || !unit.t){
+    document.getElementById('ipName').textContent = naziv;
+    document.getElementById('ipLead').textContent = 'Nema podataka';
+    document.getElementById('ipBars').innerHTML = '';
+    panel.style.display = 'block';
+    return;
+  }
+  const entries = Object.entries(unit.c)
+    .map(([name, v]) => ({name, v, pct: v/unit.t*100}))
+    .sort((a,b) => b.v - a.v)
+    .slice(0, 6);
+
+  document.getElementById('ipName').textContent = naziv;
+  const leader = entries[0];
+  const second = entries[1];
+  const margin = second ? (leader.pct - second.pct).toFixed(1) : leader.pct.toFixed(1);
+  document.getElementById('ipLead').textContent = `${leader.name.split('–')[0].split('-')[0].trim()} +${margin}`;
+
+  const maxPct = entries[0].pct;
+  document.getElementById('ipBars').innerHTML = entries.map(e => `
+    <div class="bar-row">
+      <div class="bar-label"><span>${e.name.split('–')[0].split('-')[0].trim()}</span><span>${e.pct.toFixed(1)}%</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(e.pct/maxPct*100)}%"></div></div>
+    </div>
+  `).join('');
+  panel.style.display = 'block';
+}
+document.getElementById('infopanelClose').addEventListener('click', () => {
+  document.getElementById('infopanel').style.display = 'none';
+});
+
+// Prava selekcija oblika poligona (ne bbox fokus okvir) — resetuje prethodni
+// izabrani poligon na normalan stil, boldira izabrani, po potrebi zumira na njega.
+function selectFeatureByKod(kod, naziv, zoomTo){
+  if(!geoLayer) return;
+  let target = null;
+  geoLayer.eachLayer(l => { if(String(l.feature.properties.kod) === String(kod)) target = l; });
+  if(!target) return;
+
+  if(selectedLayer && selectedLayer !== target){
+    geoLayer.resetStyle(selectedLayer);
+  }
+  selectedLayer = target;
+  target.setStyle({weight:3, color:'#111', fillOpacity:0.95});
+  target.bringToFront();
+
+  if(zoomTo){
+    map.fitBounds(target.getBounds(), {padding:[60,60], maxZoom:10});
+  }
+
+  const levelData = currentLevelData();
+  showInfoPanel(kod, naziv, levelData[String(kod)]);
+}
+
+// ---- Pretraga po svim nazivima, na svim dostupnim nivoima za izabranu godinu ----
+function normalizeSearch(s){
+  return (s||'').toLowerCase()
+    .replace(/š/g,'s').replace(/đ/g,'dj').replace(/č/g,'c').replace(/ć/g,'c').replace(/ž/g,'z')
+    .replace(/[^a-z0-9 ]/g,'');
+}
+
+function buildSearchIndex(){
+  searchIndex = [];
+  if(!electionData) return;
+  Object.entries(electionData.levels).forEach(([levelKey, units]) => {
+    Object.entries(units).forEach(([code, unit]) => {
+      if(unit.n) searchIndex.push({level: levelKey, code, name: unit.n});
+    });
+  });
+}
+
+const searchInput = document.getElementById('searchInput');
+const searchResultsEl = document.getElementById('searchResults');
+
+searchInput.addEventListener('input', () => {
+  const q = normalizeSearch(searchInput.value);
+  if(q.length < 2){ searchResultsEl.style.display = 'none'; return; }
+  const matches = searchIndex
+    .filter(e => normalizeSearch(e.name).includes(q))
+    .slice(0, 30);
+  if(!matches.length){
+    searchResultsEl.innerHTML = '<div class="res-item" style="color:var(--muted)">Nema rezultata</div>';
+    searchResultsEl.style.display = 'block';
+    return;
+  }
+  searchResultsEl.innerHTML = matches.map((m,i) =>
+    `<div class="res-item" data-idx="${i}"><span>${m.name}</span><span class="res-level">${LEVELS[m.level].label}</span></div>`
+  ).join('');
+  searchResultsEl.style.display = 'block';
+  [...searchResultsEl.querySelectorAll('.res-item')].forEach((el, i) => {
+    el.addEventListener('click', () => selectSearchResult(matches[i]));
+  });
+});
+
+document.addEventListener('click', (e) => {
+  if(!searchResultsEl.contains(e.target) && e.target !== searchInput){
+    searchResultsEl.style.display = 'none';
+  }
+});
+
+async function selectSearchResult(match){
+  searchResultsEl.style.display = 'none';
+  searchInput.value = match.name;
+  const levelSel = document.getElementById('levelSelect');
+  if(levelSel.value !== match.level){
+    levelSel.value = match.level;
+    window.__boundsFitted = true; // sprečava puni re-fit na celu zemlju, zumiraćemo na jedinicu
+    await drawMap();
+  } else if(!geoLayer){
+    await drawMap();
+  }
+  selectFeatureByKod(match.code, match.name, true);
 }
 
 (async function init(){
