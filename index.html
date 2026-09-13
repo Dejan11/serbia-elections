@@ -32,18 +32,29 @@
   }
   .legend-grid{display:grid; grid-template-columns:repeat(4, auto); gap:2px 8px;}
   .legend i{width:11px;height:11px;display:inline-block;margin-right:3px;border-radius:2px;vertical-align:middle;border:1px solid rgba(0,0,0,0.15);}
+  @media (min-width:900px){
+    .legend{font-size:.85rem; padding:14px 16px;}
+    .legend-grid{gap:5px 16px;}
+    .legend i{width:16px;height:16px;margin-right:5px;}
+    .leaflet-bottom.leaflet-right{margin-bottom:70px; margin-right:14px;}
+  }
   /* Panel sa detaljima o kliknutoj jedinici (desno gore, kao na referentnoj mapi) */
   .infopanel{
     position:absolute; top:10px; right:10px; z-index:1000;
     background:rgba(255,255,255,0.97); border:1px solid var(--border); border-radius:10px;
-    padding:10px 12px; font-size:.8rem; color:var(--text); max-width:230px;
+    padding:10px 12px; font-size:.8rem; color:var(--text); max-width:250px;
+    max-height:calc(100vh - 220px); overflow-y:auto;
     box-shadow:0 2px 8px rgba(0,0,0,0.18); display:none;
   }
   .infopanel .close{position:absolute; top:6px; right:8px; cursor:pointer; color:var(--muted); font-size:.9rem;}
   .infopanel h3{margin:0 12px 6px 0; font-size:.88rem;}
-  .infopanel .lead{font-weight:700; margin-bottom:8px;}
-  .infopanel .bar-row{margin-bottom:5px;}
-  .infopanel .bar-label{display:flex; justify-content:space-between; font-size:.72rem; margin-bottom:2px;}
+  .infopanel .lead{font-weight:700; margin-bottom:6px;}
+  .infopanel .section-title{font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin:10px 0 4px;}
+  .donut-legend{display:flex; flex-direction:column; gap:3px; margin-top:6px;}
+  .donut-legend .dl-row{display:flex; align-items:center; justify-content:space-between; font-size:.72rem; gap:6px;}
+  .donut-legend .dl-name{display:flex; align-items:center; gap:5px; overflow:hidden;}
+  .donut-legend .dl-dot{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
+  .donut-legend .dl-label{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .leaflet-interactive{ outline: none !important; }
   .leaflet-interactive:focus{ outline: none !important; }
   #searchWrap{position:relative; margin-bottom:6px;}
@@ -64,8 +75,6 @@
   #searchResults .res-item:last-child{border-bottom:none;}
   #searchResults .res-item:hover, #searchResults .res-item.active{background:#f0f2f5;}
   #searchResults .res-level{color:var(--muted); font-size:.72rem; white-space:nowrap;}
-  .infopanel .bar-track{background:#eee; border-radius:3px; height:7px; overflow:hidden;}
-  .infopanel .bar-fill{height:100%; background:var(--accent);}
   .leaflet-tooltip.muni-tip{background:var(--card);border:1px solid var(--border);color:var(--text);font-size:.8rem;padding:6px 8px;}
   .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--text);}
 </style>
@@ -92,7 +101,11 @@
     <span class="close" id="infopanelClose">✕</span>
     <h3 id="ipName"></h3>
     <div class="lead" id="ipLead"></div>
-    <div id="ipBars"></div>
+    <div id="ipDonut"></div>
+    <div class="donut-legend" id="ipDonutLegend"></div>
+    <div class="section-title" id="ipMandatiTitle">Raspodela mandata (250)</div>
+    <div id="ipHemicycle"></div>
+    <div class="donut-legend" id="ipHemicycleLegend"></div>
   </div>
 </div>
 
@@ -140,6 +153,11 @@ let selectedLayer = null;
 let searchIndex = [];
 
 const map = L.map('map', {zoomControl:true, attributionControl:false}).setView([44.2, 20.9], 7);
+// Fiksira mapu na Srbiju - ne može da se odpanuje/odzumira van te oblasti.
+const SRB_BOUNDS = L.latLngBounds([40.6, 17.7], [46.6, 23.4]);
+map.setMaxBounds(SRB_BOUNDS);
+map.options.maxBoundsViscosity = 1.0;
+map.setMinZoom(6);
 
 function setStatus(msg, cls){
   const s = document.getElementById('status');
@@ -329,33 +347,142 @@ async function drawMap(){
   setStatus(`${Object.keys(levelData).length} jedinica na nivou: ${LEVELS[levelKey].label}`, 'ok');
 }
 
-function showInfoPanel(kod, naziv, unit){
-  const panel = document.getElementById('infopanel');
-  if(!unit || !unit.t){
-    document.getElementById('ipName').textContent = naziv;
-    document.getElementById('ipLead').textContent = 'Nema podataka';
-    document.getElementById('ipBars').innerHTML = '';
-    panel.style.display = 'block';
-    return;
-  }
-  const entries = Object.entries(unit.c)
-    .map(([name, v]) => ({name, v, pct: v/unit.t*100}))
-    .sort((a,b) => b.v - a.v)
-    .slice(0, 6);
+// ---- Zajednička paleta boja (koristi se i za donut i za hemicycle) ----
+const PALETTE = ['#c0143c','#2e7dd7','#2e8b57','#e08e0b','#7b4fa0','#0b9797','#a0522d','#555555'];
+const OSTALO_COLOR = '#c9ccd1';
 
-  document.getElementById('ipName').textContent = naziv;
-  const leader = entries[0];
-  const second = entries[1];
-  const margin = second ? (leader.pct - second.pct).toFixed(1) : leader.pct.toFixed(1);
-  document.getElementById('ipLead').textContent = `${leader.name.split('–')[0].split('-')[0].trim()} +${margin}`;
+function shortName(n){ return n.split('–')[0].split('-')[0].trim(); }
 
-  const maxPct = entries[0].pct;
-  document.getElementById('ipBars').innerHTML = entries.map(e => `
-    <div class="bar-row">
-      <div class="bar-label"><span>${e.name.split('–')[0].split('-')[0].trim()}</span><span>${e.pct.toFixed(1)}%</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${(e.pct/maxPct*100)}%"></div></div>
+function polarPt(cx, cy, r, angleDeg){
+  const a = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+function donutArcPath(cx, cy, rOuter, rInner, startDeg, endDeg){
+  const so = polarPt(cx, cy, rOuter, endDeg);
+  const eo = polarPt(cx, cy, rOuter, startDeg);
+  const si = polarPt(cx, cy, rInner, startDeg);
+  const ei = polarPt(cx, cy, rInner, endDeg);
+  const large = (endDeg - startDeg) <= 180 ? 0 : 1;
+  return `M ${so.x} ${so.y} A ${rOuter} ${rOuter} 0 ${large} 0 ${eo.x} ${eo.y} L ${si.x} ${si.y} A ${rInner} ${rInner} 0 ${large} 1 ${ei.x} ${ei.y} Z`;
+}
+
+// entries: [{name, pct}] već sortirano opadajuće. Vraća {svg, legendEntries}.
+function buildDonut(entries, topN){
+  const top = entries.slice(0, topN).map((e,i) => ({...e, color: PALETTE[i % PALETTE.length]}));
+  const topSum = top.reduce((a,e) => a + e.pct, 0);
+  const rest = Math.max(0, 100 - topSum);
+  const legendEntries = [...top];
+  if(rest > 0.05) legendEntries.push({name:'Ostalo', pct:rest, color:OSTALO_COLOR});
+
+  const size = 150, cx = size/2, cy = size/2, rOuter = size/2 - 4, rInner = rOuter*0.55;
+  let angle = 0;
+  const paths = legendEntries.map(e => {
+    const sweep = e.pct/100*360;
+    const d = sweep >= 359.9
+      ? `M ${cx-rOuter} ${cy} A ${rOuter} ${rOuter} 0 1 0 ${cx+rOuter} ${cy} A ${rOuter} ${rOuter} 0 1 0 ${cx-rOuter} ${cy} Z`
+      : donutArcPath(cx, cy, rOuter, rInner, angle, angle+sweep);
+    angle += sweep;
+    return `<path d="${d}" fill="${e.color}"></path>`;
+  }).join('');
+  const svg = `<svg viewBox="0 0 ${size} ${size}" style="width:100%;max-width:170px;display:block;margin:4px auto;">${paths}</svg>`;
+  return { svg, legendEntries };
+}
+
+// partyList: [{name, seats}] već sortirano opadajuće po broju mandata.
+function buildHemicycle(partyList, totalSeats, topN){
+  const top = partyList.slice(0, topN).map((p,i) => ({...p, color: PALETTE[i % PALETTE.length]}));
+  const topSeats = top.reduce((a,p) => a + p.seats, 0);
+  const restSeats = Math.max(0, totalSeats - topSeats);
+  const legendEntries = [...top];
+  if(restSeats > 0) legendEntries.push({name:'Ostalo', seats: restSeats, color: OSTALO_COLOR});
+
+  const width = 260, height = 145;
+  const rows = 7, rInner = 34, rOuter = 118;
+  const radii = Array.from({length:rows}, (_,i) => rInner + (rOuter-rInner)*i/(rows-1));
+  const sumR = radii.reduce((a,b) => a+b, 0);
+  let seatsPerRow = radii.map(r => Math.round(totalSeats * r / sumR));
+  let diff = totalSeats - seatsPerRow.reduce((a,b) => a+b, 0);
+  seatsPerRow[seatsPerRow.length-1] += diff;
+
+  let points = [];
+  radii.forEach((r,i) => {
+    const n = seatsPerRow[i];
+    for(let k=0;k<n;k++){
+      const angle = n === 1 ? 90 : 180 - (k/(n-1))*180;
+      points.push({r, angle});
+    }
+  });
+  points.sort((a,b) => b.angle - a.angle); // levo (180°) -> desno (0°)
+
+  let idx = 0;
+  const cx = width/2, cy = height - 8;
+  const dots = points.map(p => {
+    let cum = 0, color = OSTALO_COLOR;
+    for(const party of legendEntries){
+      cum += party.seats;
+      if(idx < cum){ color = party.color; break; }
+    }
+    idx++;
+    const rad = p.angle * Math.PI/180;
+    const x = cx + p.r*Math.cos(rad);
+    const y = cy - p.r*Math.sin(rad);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.4" fill="${color}"/>`;
+  }).join('');
+  const svg = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;display:block;">${dots}</svg>`;
+  return { svg, legendEntries };
+}
+
+function renderDonutLegend(containerId, legendEntries, valueKey, suffix){
+  document.getElementById(containerId).innerHTML = legendEntries.map(e => `
+    <div class="dl-row">
+      <div class="dl-name"><span class="dl-dot" style="background:${e.color}"></span><span class="dl-label">${shortName(e.name)}</span></div>
+      <span>${valueKey === 'pct' ? e.pct.toFixed(1)+'%' : e.seats + suffix}</span>
     </div>
   `).join('');
+}
+
+function showInfoPanel(kod, naziv, unit){
+  const panel = document.getElementById('infopanel');
+  document.getElementById('ipName').textContent = naziv;
+
+  if(!unit || !unit.t){
+    document.getElementById('ipLead').textContent = 'Nema podataka';
+    document.getElementById('ipDonut').innerHTML = '';
+    document.getElementById('ipDonutLegend').innerHTML = '';
+  } else {
+    const entries = Object.entries(unit.c)
+      .map(([name, v]) => ({name, pct: v/unit.t*100}))
+      .sort((a,b) => b.pct - a.pct);
+    const leader = entries[0], second = entries[1];
+    const margin = second ? (leader.pct - second.pct).toFixed(1) : leader.pct.toFixed(1);
+    document.getElementById('ipLead').textContent = `${shortName(leader.name)} +${margin}`;
+
+    const { svg, legendEntries } = buildDonut(entries, 6);
+    document.getElementById('ipDonut').innerHTML = svg;
+    renderDonutLegend('ipDonutLegend', legendEntries, 'pct');
+  }
+
+  // Raspodela mandata je nacionalna (ne zavisi od kliknute jedinice) - prikazuje se
+  // uvek kad postoje podaci o mandatima za izabranu godinu.
+  const mandatiTitle = document.getElementById('ipMandatiTitle');
+  const hemiDiv = document.getElementById('ipHemicycle');
+  const hemiLegendDiv = document.getElementById('ipHemicycleLegend');
+  if(electionData && electionData.mandati && Object.keys(electionData.mandati).length){
+    const totalSeats = Object.values(electionData.mandati).reduce((a,b) => a+b, 0);
+    const partyList = Object.entries(electionData.mandati)
+      .map(([name, seats]) => ({name, seats}))
+      .sort((a,b) => b.seats - a.seats);
+    mandatiTitle.textContent = `Raspodela mandata (${totalSeats})`;
+    mandatiTitle.style.display = 'block';
+    const { svg, legendEntries } = buildHemicycle(partyList, totalSeats, 6);
+    hemiDiv.innerHTML = svg;
+    renderDonutLegend('ipHemicycleLegend', legendEntries, 'seats', '');
+  } else {
+    mandatiTitle.style.display = 'none';
+    hemiDiv.innerHTML = '';
+    hemiLegendDiv.innerHTML = '';
+  }
+
   panel.style.display = 'block';
 }
 document.getElementById('infopanelClose').addEventListener('click', () => {
