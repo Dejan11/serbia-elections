@@ -190,14 +190,21 @@ function populateCandidateSelect(){
   drawMap();
 }
 
-function colorFor(pct, min, max){
+// Diskretni "bucket" stepeni po % (kao na referentnoj mapi: 40-50/50-60/.../90-100%),
+// umesto neprekidnog gradijenta. Jedna boja (accent crvena), pojačava se sa %.
+const BINS = [
+  {max: 40,  color:'#2a2f38', label:'< 40%'},
+  {max: 50,  color:'#f4c2c8', label:'40–50%'},
+  {max: 60,  color:'#e78d98', label:'50–60%'},
+  {max: 70,  color:'#d75569', label:'60–70%'},
+  {max: 80,  color:'#c0143c', label:'70–80%'},
+  {max: 90,  color:'#8a0e2c', label:'80–90%'},
+  {max: 101, color:'#5c0a1e', label:'90–100%'}
+];
+function colorFor(pct){
   if(pct === undefined || pct === null || isNaN(pct)) return '#333';
-  const t = max > min ? (pct - min) / (max - min) : 0.5;
-  const c1 = [46,125,215], c2 = [192,20,60];
-  const r = Math.round(c1[0] + (c2[0]-c1[0])*t);
-  const g = Math.round(c1[1] + (c2[1]-c1[1])*t);
-  const b = Math.round(c1[2] + (c2[2]-c1[2])*t);
-  return `rgb(${r},${g},${b})`;
+  for(const b of BINS){ if(pct < b.max) return b.color; }
+  return BINS[BINS.length-1].color;
 }
 
 async function drawMap(){
@@ -223,10 +230,6 @@ async function drawMap(){
       unitVotes[code] = v;
     }
   });
-  const pctVals = Object.values(unitPct);
-  const min = pctVals.length ? Math.min(...pctVals) : 0;
-  const max = pctVals.length ? Math.max(...pctVals) : 1;
-
   if(geoLayer) map.removeLayer(geoLayer);
 
   geoLayer = L.geoJSON(geomData, {
@@ -234,7 +237,7 @@ async function drawMap(){
       const kod = String(feature.properties.kod);
       const pct = unitPct[kod];
       return {
-        fillColor: pct !== undefined ? colorFor(pct, min, max) : '#333',
+        fillColor: colorFor(pct),
         fillOpacity: 0.85, color: '#0e1116', weight: levelKey === 'opstina' ? 0.5 : 0.8
       };
     },
@@ -259,12 +262,7 @@ async function drawMap(){
   legendControl = L.control({position:'bottomright'});
   legendControl.onAdd = function(){
     const div = L.DomUtil.create('div', 'legend');
-    div.innerHTML = `
-      <div><i style="background:${colorFor(min,min,max)}"></i>${min.toFixed(1)}%</div>
-      <div><i style="background:${colorFor((min+max)/2,min,max)}"></i>${((min+max)/2).toFixed(1)}%</div>
-      <div><i style="background:${colorFor(max,min,max)}"></i>${max.toFixed(1)}%</div>
-      <div style="margin-top:4px; color:var(--muted)">boja = % (relativna skala)</div>
-    `;
+    div.innerHTML = BINS.map(b => `<div><i style="background:${b.color}"></i>${b.label}</div>`).join('');
     return div;
   };
   legendControl.addTo(map);
