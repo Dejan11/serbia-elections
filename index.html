@@ -3,95 +3,45 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Izbori Srbija — mapa po opštinama</title>
+<title>Izbori Srbija — mapa</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root{
-    --bg:#0e1116;
-    --card:#161b22;
-    --border:#2a3038;
-    --accent:#c0143c;
-    --accent2:#2e7dd7;
-    --text:#e8eaed;
-    --muted:#9aa4af;
+    --bg:#0e1116; --card:#161b22; --border:#2a3038;
+    --accent:#c0143c; --accent2:#2e7dd7; --text:#e8eaed; --muted:#9aa4af;
   }
   *{box-sizing:border-box;}
-  html,body{
-    margin:0; padding:0; height:100%;
-    background:var(--bg); color:var(--text);
-    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  }
-  #controls{
-    padding:10px 10px 6px 10px;
-    background:var(--card);
-    border-bottom:1px solid var(--border);
-  }
-  h1{
-    font-size:1.05rem;
-    margin:0 0 8px 0;
-    color:#fff;
-  }
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  #controls{padding:10px 10px 6px 10px;background:var(--card);border-bottom:1px solid var(--border);}
+  h1{font-size:1.05rem;margin:0 0 8px 0;color:#fff;}
   h1 span{color:var(--accent);}
+  .row{display:flex; gap:6px;}
   select{
-    width:100%;
-    padding:10px;
-    margin-bottom:6px;
-    border-radius:8px;
-    border:1px solid var(--border);
-    background:#0b0e13;
-    color:var(--text);
-    font-size:.92rem;
+    width:100%; padding:10px; margin-bottom:6px; border-radius:8px;
+    border:1px solid var(--border); background:#0b0e13; color:var(--text); font-size:.9rem;
   }
-  #status{
-    font-size:.78rem;
-    color:var(--muted);
-    min-height:1.1em;
-  }
-  #status.err{color:#ff6b6b;}
-  #status.ok{color:#4dd48a;}
-  #map{
-    position:absolute;
-    top:0; left:0; right:0; bottom:0;
-  }
-  #mapwrap{
-    position:relative;
-    height:calc(100vh - 150px);
-    min-height:320px;
-  }
+  #status{font-size:.78rem;color:var(--muted);min-height:1.1em;}
+  #status.err{color:#ff6b6b;} #status.ok{color:#4dd48a;}
+  #map{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--bg);}
+  #mapwrap{position:relative;height:calc(100vh - 178px);min-height:300px;}
   .legend{
-    background:rgba(22,27,34,0.92);
-    border:1px solid var(--border);
-    border-radius:8px;
-    padding:8px 10px;
-    font-size:.75rem;
-    color:var(--text);
-    line-height:1.5;
+    background:rgba(22,27,34,0.92); border:1px solid var(--border); border-radius:8px;
+    padding:8px 10px; font-size:.75rem; color:var(--text); line-height:1.5;
   }
-  .legend i{
-    width:14px; height:14px;
-    display:inline-block;
-    margin-right:6px;
-    border-radius:2px;
-    vertical-align:middle;
-  }
-  .leaflet-tooltip.muni-tip{
-    background:var(--card);
-    border:1px solid var(--border);
-    color:var(--text);
-    font-size:.8rem;
-    padding:6px 8px;
-  }
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip{
-    background:var(--card);
-    color:var(--text);
-  }
+  .legend i{width:14px;height:14px;display:inline-block;margin-right:6px;border-radius:2px;vertical-align:middle;}
+  .leaflet-tooltip.muni-tip{background:var(--card);border:1px solid var(--border);color:var(--text);font-size:.8rem;padding:6px 8px;}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--text);}
 </style>
 </head>
 <body>
 
 <div id="controls">
-  <h1>Izbori <span>Srbija</span> — po opštinama</h1>
-  <select id="datasetSelect"></select>
+  <h1>Izbori <span>Srbija</span></h1>
+  <div class="row">
+    <select id="datasetSelect"></select>
+    <select id="levelSelect"></select>
+  </div>
   <select id="candidateSelect"></select>
   <div id="status">Učitavam...</div>
 </div>
@@ -100,9 +50,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// ---- Izvori (menjaj samo ovaj blok ako dodaješ nove godine) ----
 const REPO = 'https://raw.githubusercontent.com/Dejan11/serbia-elections/refs/heads/main/';
-const GEOM_URL = REPO + 'Opstina_simplified.geojson';
+
 const YEARS = [
   {code:'2000', label:'Parlamentarni izbori 2000'},
   {code:'2003', label:'Parlamentarni izbori 2003'},
@@ -111,20 +60,36 @@ const YEARS = [
   {code:'2012', label:'Parlamentarni izbori 2012'},
   {code:'2014', label:'Parlamentarni izbori 2014'},
   {code:'2016', label:'Parlamentarni izbori 2016'},
-  {code:'2020', label:'Parlamentarni izbori 2020'}
+  {code:'2020', label:'Parlamentarni izbori 2020'},
+  {code:'2023', label:'Parlamentarni izbori 2023'}
 ];
-function electionUrl(code){ return REPO + `election_${code}_muni.json`; }
 
-let geomData = null;
-let electionData = null;   // {year, label, municipalities: {mb: {n, t, c:{cand:votes}}}}
+// nivo -> {label, geo fajl}. 'opstina' je najsitniji dostupan nivo (nema naselja - RZS ne
+// objavljuje parlamentarne rezultate na nivou naseljenog mesta, samo do opštine).
+const LEVELS = {
+  opstina:   {label:'Opština',    geo: REPO + 'geo_opstina.geojson'},
+  grad:      {label:'Grad',       geo: REPO + 'geo_grad.geojson'},
+  okrug:     {label:'Okrug',      geo: REPO + 'geo_okrug.geojson'},
+  region:    {label:'Region',     geo: REPO + 'geo_region.geojson'},
+  pokrajina: {label:'Pokrajina',  geo: REPO + 'geo_pokrajina.geojson'},
+  republika: {label:'Republika',  geo: REPO + 'geo_republika.geojson'}
+};
+// koji nivoi postoje za koju godinu (2023 nema opštinu/grad/okrug — RZS je promenio format)
+const LEVELS_BY_YEAR = {
+  '2023': ['region','pokrajina','republika']
+};
+function levelsForYear(year){
+  return LEVELS_BY_YEAR[year] || Object.keys(LEVELS);
+}
+
+function electionUrl(code){ return REPO + `election_${code}.json`; }
+
+let electionData = null;
+let geoCache = {};
 let geoLayer = null;
 let legendControl = null;
 
-const map = L.map('map', {zoomControl:true}).setView([44.2, 20.9], 7);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  maxZoom: 13
-}).addTo(map);
+const map = L.map('map', {zoomControl:true, attributionControl:false}).setView([44.2, 20.9], 7);
 
 function setStatus(msg, cls){
   const s = document.getElementById('status');
@@ -142,13 +107,32 @@ function populateDatasetSelect(){
     sel.appendChild(opt);
   });
   sel.value = '2020';
-  sel.addEventListener('change', loadElection);
+  sel.addEventListener('change', onYearChange);
 }
 
-async function loadGeometry(){
-  const res = await fetch(GEOM_URL);
-  if(!res.ok) throw new Error('Granice opština: HTTP ' + res.status);
-  geomData = await res.json();
+function populateLevelSelect(year){
+  const sel = document.getElementById('levelSelect');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  levelsForYear(year).forEach(key => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = LEVELS[key].label;
+    sel.appendChild(opt);
+  });
+  if(levelsForYear(year).includes(prev)){
+    sel.value = prev;
+  } else {
+    sel.value = levelsForYear(year).includes('opstina') ? 'opstina' : 'region';
+  }
+  sel.onchange = () => { window.__boundsFitted = false; drawMap(); };
+}
+
+async function onYearChange(){
+  window.__boundsFitted = false;
+  const code = document.getElementById('datasetSelect').value;
+  populateLevelSelect(code);
+  await loadElection();
 }
 
 async function loadElection(){
@@ -158,87 +142,106 @@ async function loadElection(){
   try{
     const res = await fetch(electionUrl(code));
     if(!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-    electionData = json;
-    setStatus(`Učitano: ${Object.keys(json.municipalities).length} opština.`, 'ok');
+    electionData = await res.json();
+    setStatus('Učitano.', 'ok');
     populateCandidateSelect();
   }catch(err){
     setStatus('Greška: ' + err.message, 'err');
   }
 }
 
+async function loadGeo(url){
+  if(geoCache[url]) return geoCache[url];
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Granice: HTTP ' + res.status);
+  const gj = await res.json();
+  geoCache[url] = gj;
+  return gj;
+}
+
+function currentLevelData(){
+  const levelKey = document.getElementById('levelSelect').value;
+  return electionData.levels[levelKey] || {};
+}
+
 function populateCandidateSelect(){
-  // saberi glasove po kandidatu na nivou cele zemlje da bismo sortirali listu
+  const levelData = currentLevelData();
   const totals = {};
   let grandTotal = 0;
-  Object.values(electionData.municipalities).forEach(m => {
-    grandTotal += m.t;
-    Object.entries(m.c).forEach(([cand, v]) => {
-      totals[cand] = (totals[cand]||0) + v;
-    });
+  Object.values(levelData).forEach(unit => {
+    grandTotal += unit.t;
+    Object.entries(unit.c).forEach(([cand, v]) => { totals[cand] = (totals[cand]||0) + v; });
   });
   const list = Object.entries(totals)
     .map(([name, v]) => ({name, v, pct: grandTotal ? (v/grandTotal*100) : 0}))
     .sort((a,b) => b.v - a.v);
 
   const sel = document.getElementById('candidateSelect');
+  const prevValue = sel.value;
   sel.innerHTML = '';
   list.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.name;
-    opt.textContent = `${c.name} (${c.pct.toFixed(1)}% Srbija)`;
+    opt.textContent = `${c.name} (${c.pct.toFixed(1)}%)`;
     sel.appendChild(opt);
   });
-  sel.addEventListener('change', drawMap);
+  if(list.some(c => c.name === prevValue)) sel.value = prevValue;
+  sel.onchange = drawMap;
   drawMap();
 }
 
 function colorFor(pct, min, max){
   if(pct === undefined || pct === null || isNaN(pct)) return '#333';
   const t = max > min ? (pct - min) / (max - min) : 0.5;
-  const c1 = [46,125,215];
-  const c2 = [192,20,60];
+  const c1 = [46,125,215], c2 = [192,20,60];
   const r = Math.round(c1[0] + (c2[0]-c1[0])*t);
   const g = Math.round(c1[1] + (c2[1]-c1[1])*t);
   const b = Math.round(c1[2] + (c2[2]-c1[2])*t);
   return `rgb(${r},${g},${b})`;
 }
 
-function drawMap(){
+async function drawMap(){
   const candidate = document.getElementById('candidateSelect').value;
-  if(!candidate || !geomData || !electionData) return;
+  const levelKey = document.getElementById('levelSelect').value;
+  if(!candidate || !electionData) return;
 
-  // izračunaj % po opštini za izabranog kandidata
-  const muniPct = {};
-  const muniVotes = {};
-  Object.entries(electionData.municipalities).forEach(([mb, m]) => {
-    const v = m.c[candidate];
-    if(v !== undefined && m.t > 0){
-      muniPct[mb] = v / m.t * 100;
-      muniVotes[mb] = v;
+  setStatus('Crtam mapu...', '');
+  let geomData;
+  try{
+    geomData = await loadGeo(LEVELS[levelKey].geo);
+  }catch(err){
+    setStatus('Greška pri učitavanju granica: ' + err.message, 'err');
+    return;
+  }
+
+  const levelData = currentLevelData();
+  const unitPct = {}, unitVotes = {};
+  Object.entries(levelData).forEach(([code, unit]) => {
+    const v = unit.c[candidate];
+    if(v !== undefined && unit.t > 0){
+      unitPct[code] = v / unit.t * 100;
+      unitVotes[code] = v;
     }
   });
-  const pctVals = Object.values(muniPct);
-  const min = Math.min(...pctVals);
-  const max = Math.max(...pctVals);
+  const pctVals = Object.values(unitPct);
+  const min = pctVals.length ? Math.min(...pctVals) : 0;
+  const max = pctVals.length ? Math.max(...pctVals) : 1;
 
   if(geoLayer) map.removeLayer(geoLayer);
 
   geoLayer = L.geoJSON(geomData, {
     style: feature => {
-      const mb = String(feature.properties.mb);
-      const pct = muniPct[mb];
+      const kod = String(feature.properties.kod);
+      const pct = unitPct[kod];
       return {
         fillColor: pct !== undefined ? colorFor(pct, min, max) : '#333',
-        fillOpacity: 0.85,
-        color: '#0e1116',
-        weight: 0.6
+        fillOpacity: 0.85, color: '#0e1116', weight: levelKey === 'opstina' ? 0.5 : 0.8
       };
     },
     onEachFeature: (feature, layer) => {
-      const mb = String(feature.properties.mb);
-      const pct = muniPct[mb];
-      const votes = muniVotes[mb];
+      const kod = String(feature.properties.kod);
+      const pct = unitPct[kod];
+      const votes = unitVotes[kod];
       const naziv = feature.properties.ime;
       const tip = pct !== undefined
         ? `<b>${naziv}</b><br>${candidate}<br><b>${pct.toFixed(2)}%</b> (${votes.toLocaleString('sr-RS')} glasova)`
@@ -246,6 +249,11 @@ function drawMap(){
       layer.bindTooltip(tip, {className:'muni-tip', sticky:true});
     }
   }).addTo(map);
+
+  if(!window.__boundsFitted){
+    map.fitBounds(geoLayer.getBounds(), {padding:[10,10]});
+    window.__boundsFitted = true;
+  }
 
   if(legendControl) map.removeControl(legendControl);
   legendControl = L.control({position:'bottomright'});
@@ -255,21 +263,18 @@ function drawMap(){
       <div><i style="background:${colorFor(min,min,max)}"></i>${min.toFixed(1)}%</div>
       <div><i style="background:${colorFor((min+max)/2,min,max)}"></i>${((min+max)/2).toFixed(1)}%</div>
       <div><i style="background:${colorFor(max,min,max)}"></i>${max.toFixed(1)}%</div>
-      <div style="margin-top:4px; color:var(--muted)">boja = % po opštini (relativna skala)</div>
+      <div style="margin-top:4px; color:var(--muted)">boja = % (relativna skala)</div>
     `;
     return div;
   };
   legendControl.addTo(map);
+  setStatus(`${Object.keys(levelData).length} jedinica na nivou: ${LEVELS[levelKey].label}`, 'ok');
 }
 
 (async function init(){
   populateDatasetSelect();
-  try{
-    await loadGeometry();
-    await loadElection();
-  }catch(err){
-    setStatus('Greška: ' + err.message, 'err');
-  }
+  populateLevelSelect('2020');
+  await loadElection();
 })();
 </script>
 
